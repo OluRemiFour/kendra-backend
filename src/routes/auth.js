@@ -87,7 +87,7 @@ router.get("/github", async (req, res) => {
         redirect_uri: `${
           config.nodeEnv === "production"
             ? "https://kendra-backend-2kcs.onrender.com"
-            : "http://localhost:9000"
+            : "http://localhost:8000"
         }/api/auth/github/callback`,
         scope: "repo read:user user:email",
         state: state,
