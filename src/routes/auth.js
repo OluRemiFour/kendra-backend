@@ -86,7 +86,7 @@ router.get("/github", async (req, res) => {
         client_id: config.githubClientId,
         redirect_uri: `${
           config.nodeEnv === "production"
-            ? "https://kendra-backend.onrender.com"
+            ? "https://kendra-backend-2kcs.onrender.com"
             : "http://localhost:9000"
         }/api/auth/github/callback`,
         scope: "repo read:user user:email",
@@ -158,7 +158,7 @@ router.get("/github/connect", async (req, res) => {
         client_id: config.githubClientId,
         redirect_uri: `${
           config.nodeEnv === "production"
-            ? "https://kendra-backend.onrender.com"
+            ? "https://kendra-backend-2kcs.onrender.com"
             : "http://localhost:9000"
         }/api/auth/github/callback`,
         scope: "repo read:user user:email",
