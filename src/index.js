@@ -88,6 +88,13 @@ mongoose
 // ==================== ROUTES ====================
 
 // Health check
+app.get("/health", (req, res) => {
+  res.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    service: "Kendra Backend",
+  });
+});
 
 
 // Auth routes
