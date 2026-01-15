@@ -79,7 +79,7 @@ const config = {
   // Server
   port: process.env.PORT || 4000,
   nodeEnv: process.env.NODE_ENV || "development",
-  frontendUrl: process.env.FRONTEND_URL || "https://kendra-devops.vercel.app",
+  frontendUrl: process.env.FRONTEND_URL || "https://kendra-sand.vercel.app",
 
   // Database
   mongoUri: process.env.MONGODB_URI,
@@ -137,7 +137,7 @@ const config = {
     origin: function (origin, callback) {
       const allowedOrigins = [
         "http://localhost:5173",
-        "https://kendra-devops.vercel.app",
+        "https://kendra-sand.vercel.app",
         process.env.FRONTEND_URL,
       ];
 
