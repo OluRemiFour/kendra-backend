@@ -10,6 +10,7 @@ const User = require("../models/User");
 const auditService = require("./auditService");
 const geminiService = require("./geminiService");
 const cerebrasService = require("./cerebrasService");
+const { spawn } = require("child_process");
 
 class AnalysisService {
   constructor() {
@@ -110,7 +111,8 @@ class AnalysisService {
       const ISSUE_LIMIT = 25;
       let currentIssuesCount = 0;
 
-      /* PREVIOUS CODE:
+      /*
+      PREVIOUS CODE:
       for (let i = 0; i < filesToAnalyze.length; i += batchSize) {
         const batch = filesToAnalyze.slice(i, i + batchSize);
         console.log(
@@ -134,60 +136,67 @@ class AnalysisService {
         // Analyze with AI
         const batchIssues = await this.analyzeFilesWithAI(
           filesWithContent,
-          repository
-        );
-
-        allIssues.push(...batchIssues);
-
-        // Small delay to avoid rate limits
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-      */
-
-      // NEW CODE WITH LIMIT:
-      for (let i = 0; i < filesToAnalyze.length; i += batchSize) {
-        if (currentIssuesCount >= ISSUE_LIMIT) {
-          console.log(`🛑 Reached analysis limit of ${ISSUE_LIMIT} issues. Skipping remaining files.`);
-          break;
-        }
-
-        const batch = filesToAnalyze.slice(i, i + batchSize);
-        console.log(
-          `🔄 Analyzing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(
-            filesToAnalyze.length / batchSize
-          )} (Current count: ${currentIssuesCount}/${ISSUE_LIMIT})`
-        );
-
-        // Get file contents
-        const filesWithContent = await Promise.all(
-          batch.map((file) =>
-            this.getFileContent(
-              repository.repoOwner,
-              repository.repoName,
-              file.path,
-              user.githubAccessToken
-            )
-          )
-        );
-
-        // Analyze with AI
-        // Pass remaining quota to help AI be more selective if needed
-        const remainingQuota = ISSUE_LIMIT - currentIssuesCount;
-        const batchIssues = await this.analyzeFilesWithAI(
-          filesWithContent,
           repository,
-          remainingQuota,
+          batchSize,
           projectManifest
         );
+      }
+      */
+      // --- EXPERIMENTAL PYTHON CEREBRAS TEST ---
+      console.log("🧪 Running Experimental Python Cerebras Analyzer...");
+      const pythonIssues = await this.runPythonAnalyzer(
+        `https://github.com/${repository.repoOwner}/${repository.repoName}.git`,
+        repository.defaultBranch || "main"
+      );
 
-        // Append only up to the limit
-        const issuesToAdd = batchIssues.slice(0, remainingQuota);
-        allIssues.push(...issuesToAdd);
-        currentIssuesCount += issuesToAdd.length;
+      if (pythonIssues && pythonIssues.length > 0) {
+        console.log(`✅ Python analyzer found ${pythonIssues.length} issues`);
+        allIssues.push(...pythonIssues);
+      } else {
+        console.log("⚠️ Python analyzer returned 0 issues, falling back to standard batch analysis...");
+        // Step 3: Batch process files (Existing Logic)
+        for (let i = 0; i < filesToAnalyze.length; i += batchSize) {
+          if (currentIssuesCount >= ISSUE_LIMIT) {
+            console.log(`🛑 Reached analysis limit of ${ISSUE_LIMIT} issues. Skipping remaining files.`);
+            break;
+          }
 
-        if (currentIssuesCount < ISSUE_LIMIT) {
-          // Small delay to avoid rate limits
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const batch = filesToAnalyze.slice(i, i + batchSize);
+          console.log(
+            `🔄 Analyzing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(
+              filesToAnalyze.length / batchSize
+            )} (Current count: ${currentIssuesCount}/${ISSUE_LIMIT})`
+          );
+
+          // Get file contents
+          const filesWithContent = await Promise.all(
+            batch.map((file) =>
+              this.getFileContent(
+                repository.repoOwner,
+                repository.repoName,
+                file.path,
+                user.githubAccessToken
+              )
+            )
+          );
+
+          // Analyze with AI
+          const remainingQuota = ISSUE_LIMIT - currentIssuesCount;
+          const batchIssues = await this.analyzeFilesWithAI(
+            filesWithContent,
+            repository,
+            remainingQuota,
+            projectManifest
+          );
+
+          // Append only up to the limit
+          const issuesToAdd = batchIssues.slice(0, remainingQuota);
+          allIssues.push(...issuesToAdd);
+          currentIssuesCount += issuesToAdd.length;
+
+          if (currentIssuesCount < ISSUE_LIMIT) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
         }
       }
 
@@ -688,6 +697,79 @@ RULES:
     }
 
     return savedIssues;
+  }
+
+  /**
+   * Run the standalone Python Cerebras Analyzer
+   */
+  async runPythonAnalyzer(repoUrl, branch, prefix = "") {
+    return new Promise((resolve) => {
+      const pythonPath = "python"; // Assume python is in PATH
+      const scriptPath = path.resolve(__dirname, "../python/cerebras_analyzer.py");
+      
+      console.log(`🚀 Spawning Python Process: ${pythonPath} ${scriptPath} ${repoUrl} ${branch}`);
+
+      const pyProcess = spawn(pythonPath, [scriptPath, repoUrl, branch, prefix]);
+
+      let output = "";
+      let errorOutput = "";
+
+      pyProcess.stdout.on("data", (data) => {
+        output += data.toString();
+      });
+
+      pyProcess.stderr.on("data", (data) => {
+        errorOutput += data.toString();
+      });
+
+      pyProcess.on("close", (code) => {
+        if (code !== 0) {
+          console.error(`❌ Python process exited with code ${code}`);
+          console.error(`Stderr: ${errorOutput}`);
+          return resolve([]);
+        }
+
+        try {
+          const result = JSON.parse(output.trim());
+          if (result.error) {
+            console.error(`❌ Python analyzer error: ${result.error}`);
+            return resolve([]);
+          }
+          
+          // Map Python output format to Kendra Issue format if needed
+          // Python: { "file": "path", "line": 1, "type": "bug", "msg": "...", "severity": "HIGH" }
+          // Kendra: { title, description, issueType, severity, filePath, lineNumber, ... }
+          const formattedIssues = (result.issues || []).map(issue => ({
+            title: issue.msg.split('\n')[0].substring(0, 100),
+            description: issue.msg,
+            issueType: this.mapIssueType(issue.type),
+            severity: issue.severity || "MEDIUM",
+            filePath: issue.file,
+            lineNumber: issue.line || 1,
+            codeSnippet: "", // Python analyzer doesn't return snippet yet
+            aiConfidence: 0.85,
+            aiExplanation: "Detected via Cerebras Llama-3.1 model",
+            suggestedFix: "Follow general best practices for this issue type."
+          }));
+
+          resolve(formattedIssues);
+        } catch (e) {
+          console.error("❌ Failed to parse Python output as JSON");
+          console.error("Raw Output:", output.substring(0, 500));
+          resolve([]);
+        }
+      });
+    });
+  }
+
+  mapIssueType(type) {
+    const map = {
+      "security": "security",
+      "bug": "bug",
+      "quality": "code-quality",
+      "performance": "performance"
+    };
+    return map[type] || "bug";
   }
 }
 
