@@ -8,6 +8,34 @@ const auditService = require("../services/auditService");
 const router = express.Router();
 
 /**
+ * GET /api/stats/security-posture
+ * Get dynamic security posture index for the user
+ */
+router.get("/security-posture", authMiddleware.verifyToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const securityPostureService = require("../services/securityPostureService");
+
+    console.log(`🛡️ Calculating security posture for user: ${userId}`);
+
+    const postureData = await securityPostureService.calculateSecurityPosture(userId);
+
+    console.log(`✅ Security posture calculated: ${postureData.postureIndex}/100 (${postureData.trend})`);
+
+    res.json({
+      success: true,
+      posture: postureData,
+    });
+  } catch (error) {
+    console.error("❌ Get security posture error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to calculate security posture",
+    });
+  }
+});
+
+/**
  * GET /api/stats/:repositoryId
  * Get comprehensive statistics for a repository
  */
@@ -270,32 +298,6 @@ router.get("/user/overview", authMiddleware.verifyToken, async (req, res) => {
   }
 });
 
-/**
- * GET /api/stats/security-posture
- * Get dynamic security posture index for the user
- */
-router.get("/security-posture", authMiddleware.verifyToken, async (req, res) => {
-  try {
-    const userId = req.userId;
-    const securityPostureService = require("../services/securityPostureService");
 
-    console.log(`🛡️ Calculating security posture for user: ${userId}`);
-
-    const postureData = await securityPostureService.calculateSecurityPosture(userId);
-
-    console.log(`✅ Security posture calculated: ${postureData.postureIndex}/100 (${postureData.trend})`);
-
-    res.json({
-      success: true,
-      posture: postureData,
-    });
-  } catch (error) {
-    console.error("❌ Get security posture error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to calculate security posture",
-    });
-  }
-});
 
 module.exports = router;
