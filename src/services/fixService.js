@@ -255,42 +255,6 @@ class FixService {
 
 
   async generateFixWithAI(originalContent, issue, repository) {
-    /* PREVIOUS PROMPT:
-    const systemPrompt = `You are an expert software engineer. Return ONLY the fixed code, no explanations, no markdown formatting.`;
-
-    const userPrompt = `Fix the following issue in this code file.
-
-Repository: ${repository.repoOwner}/${repository.repoName}
-Language: ${repository.language || "Unknown"}
-File: ${issue.filePath}
-
-Issue Details:
-- Title: ${issue.title}
-- Type: ${issue.issueType}
-- Severity: ${issue.severity}
-- Description: ${issue.description}
-- Line Number: ${issue.lineNumber || "Unknown"}
-- AI Explanation: ${issue.aiExplanation || "Security/quality issue detected"}
-- Suggested Fix: ${issue.suggestedFix || "Apply standard fix"}
-
-Current File Content:
-\`\`\`
-${originalContent}
-\`\`\`
-
-TASK: Fix the issue in the code above. Return ONLY the complete fixed file content.
-
-Requirements:
-1. Fix ONLY the specific issue mentioned
-2. Maintain all existing functionality
-3. Keep the same coding style and formatting
-4. Don't add comments explaining the fix
-5. Ensure the fix is production-ready
-6. Return the COMPLETE file with the fix applied
-
-Return ONLY the fixed code, no explanations, no markdown formatting, just the raw code.`;
-    */
-
     // NEW OPTIMIZED PROMPT:
     const systemPrompt = `Expert Debugger. Fix ${issue.issueType} issue. Return ONLY COMPLETE FIXED CODE. No chat. No markdown.`;
 

@@ -69,13 +69,27 @@ const config = {
         "http://localhost:5173",
         "https://kendra-sand.vercel.app",
         process.env.FRONTEND_URL,
-      ];
+      ].filter(Boolean); // Remove undefined values
 
-      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
+      // Log the origin for debugging
+      console.log(`🔍 CORS Check - Origin: ${origin || 'undefined'}`);
+      console.log(`🔍 Allowed Origins:`, allowedOrigins);
+
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) {
+        console.log("✅ CORS: Allowing request with no origin");
+        return callback(null, true);
       }
+
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        console.log(`✅ CORS: Allowing origin ${origin}`);
+        return callback(null, true);
+      }
+
+      // Reject all other origins
+      console.error(`❌ CORS: Rejecting origin ${origin}`);
+      callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
     optionsSuccessStatus: 200,

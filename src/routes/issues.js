@@ -238,4 +238,108 @@ router.get(
   }
 );
 
+/**
+ * GET /api/issues/threats/:repositoryId
+ * Get categorized threats for a repository
+ */
+router.get(
+  "/threats/:repositoryId",
+  authMiddleware.verifyToken,
+  async (req, res) => {
+    try {
+      const { repositoryId } = req.params;
+      const securityAdvisorService = require("../services/securityAdvisorService");
+
+      console.log(`🔍 Fetching threats for repository: ${repositoryId}`);
+
+      const threatsData = await securityAdvisorService.getThreatsDetected(
+        repositoryId,
+        req.userId
+      );
+
+      res.json(threatsData);
+    } catch (error) {
+      console.error("❌ Get threats error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch threats",
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/issues/test-endpoint
+ * Test API endpoint security
+ */
+router.post(
+  "/test-endpoint",
+  authMiddleware.verifyToken,
+  async (req, res) => {
+    try {
+      const { endpoint, method, headers } = req.body;
+      const securityAdvisorService = require("../services/securityAdvisorService");
+
+      if (!endpoint) {
+        return res.status(400).json({
+          success: false,
+          error: "Endpoint URL is required",
+        });
+      }
+
+      console.log(`🔍 Testing API endpoint: ${endpoint}`);
+
+      const testResults = await securityAdvisorService.testAPIEndpoint(
+        endpoint,
+        method || "GET",
+        headers || {}
+      );
+
+      res.json({
+        success: true,
+        results: testResults,
+      });
+    } catch (error) {
+      console.error("❌ API endpoint test error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to test endpoint",
+        details: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/issues/pen-test-report/:repositoryId
+ * Generate penetration testing report
+ */
+router.get(
+  "/pen-test-report/:repositoryId",
+  authMiddleware.verifyToken,
+  async (req, res) => {
+    try {
+      const { repositoryId } = req.params;
+      const securityAdvisorService = require("../services/securityAdvisorService");
+
+      console.log(`📋 Generating pen-test report for repository: ${repositoryId}`);
+
+      const report = await securityAdvisorService.generatePenetrationTestReport(
+        repositoryId
+      );
+
+      res.json({
+        success: true,
+        report,
+      });
+    } catch (error) {
+      console.error("❌ Pen-test report generation error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to generate report",
+      });
+    }
+  }
+);
+
 module.exports = router;

@@ -103,6 +103,208 @@ Return a JSON array of findings. Each finding must have:
       throw error;
     }
   }
+
+  /**
+   * Get categorized threats for a repository
+   */
+  async getThreatsDetected(repositoryId, userId) {
+    try {
+      const Issue = require('../models/Issue');
+      
+      const threats = await Issue.find({
+        repositoryId,
+        userId,
+        status: { $ne: 'resolved' }
+      });
+
+      // Categorize threats
+      const categorized = {
+        apiSecurity: threats.filter(t => t.issueType === 'api-security'),
+        penTest: threats.filter(t => t.issueType === 'pen-test'),
+        dependency: threats.filter(t => t.issueType === 'dependency'),
+        security: threats.filter(t => t.issueType === 'security'),
+        other: threats.filter(t => !['api-security', 'pen-test', 'dependency', 'security'].includes(t.issueType))
+      };
+
+      const summary = {
+        total: threats.length,
+        byCategory: {
+          apiSecurity: categorized.apiSecurity.length,
+          penTest: categorized.penTest.length,
+          dependency: categorized.dependency.length,
+          security: categorized.security.length,
+          other: categorized.other.length
+        },
+        bySeverity: {
+          critical: threats.filter(t => t.severity === 'CRITICAL').length,
+          high: threats.filter(t => t.severity === 'HIGH').length,
+          medium: threats.filter(t => t.severity === 'MEDIUM').length,
+          low: threats.filter(t => t.severity === 'LOW').length
+        }
+      };
+
+      return {
+        success: true,
+        threats: categorized,
+        summary
+      };
+    } catch (error) {
+      console.error("❌ Get threats failed:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Test API endpoint security (safe, non-exploitative testing)
+   */
+  async testAPIEndpoint(endpoint, method = 'GET', headers = {}) {
+    const axios = require('axios');
+    
+    const results = {
+      endpoint,
+      method,
+      timestamp: new Date(),
+      findings: [],
+      score: 100
+    };
+
+    try {
+      // Test 1: Check if endpoint requires authentication
+      console.log(`🔍 Testing endpoint: ${endpoint}`);
+      
+      try {
+        const response = await axios({
+          method,
+          url: endpoint,
+          headers,
+          timeout: 5000,
+          validateStatus: () => true // Accept any status
+        });
+
+        // Check authentication
+        if (response.status === 200 && !headers.Authorization) {
+          results.findings.push({
+            severity: 'HIGH',
+            category: 'Authentication',
+            issue: 'Endpoint accessible without authentication',
+            recommendation: 'Implement authentication middleware'
+          });
+          results.score -= 20;
+        }
+
+        // Check security headers
+        const securityHeaders = ['x-frame-options', 'x-content-type-options', 'strict-transport-security'];
+        const missingHeaders = securityHeaders.filter(h => !response.headers[h]);
+        
+        if (missingHeaders.length > 0) {
+          results.findings.push({
+            severity: 'MEDIUM',
+            category: 'Security Headers',
+            issue: `Missing security headers: ${missingHeaders.join(', ')}`,
+            recommendation: 'Add security headers to all responses'
+          });
+          results.score -= 10;
+        }
+
+        // Check for rate limiting
+        const rateLimitHeaders = ['x-ratelimit-limit', 'x-ratelimit-remaining'];
+        const hasRateLimit = rateLimitHeaders.some(h => response.headers[h]);
+        
+        if (!hasRateLimit) {
+          results.findings.push({
+            severity: 'MEDIUM',
+            category: 'Rate Limiting',
+            issue: 'No rate limiting detected',
+            recommendation: 'Implement rate limiting to prevent abuse'
+          });
+          results.score -= 15;
+        }
+
+        // Check CORS configuration
+        if (response.headers['access-control-allow-origin'] === '*') {
+          results.findings.push({
+            severity: 'MEDIUM',
+            category: 'CORS',
+            issue: 'Permissive CORS policy (allows all origins)',
+            recommendation: 'Restrict CORS to specific trusted origins'
+          });
+          results.score -= 10;
+        }
+
+      } catch (requestError) {
+        results.findings.push({
+          severity: 'INFO',
+          category: 'Connectivity',
+          issue: `Could not reach endpoint: ${requestError.message}`,
+          recommendation: 'Verify endpoint URL and network connectivity'
+        });
+      }
+
+      if (results.findings.length === 0) {
+        results.findings.push({
+          severity: 'INFO',
+          category: 'Overall',
+          issue: 'No major security issues detected',
+          recommendation: 'Continue monitoring and regular security audits'
+        });
+      }
+
+      return results;
+
+    } catch (error) {
+      console.error("❌ API endpoint test failed:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate penetration testing report for a repository
+   */
+  async generatePenetrationTestReport(repositoryId) {
+    try {
+      const Issue = require('../models/Issue');
+      const Repository = require('../models/Repository');
+
+      const repository = await Repository.findById(repositoryId);
+      const issues = await Issue.find({
+        repositoryId,
+        status: { $ne: 'resolved' }
+      });
+
+      // Identify attack surfaces
+      const attackSurfaces = issues
+        .filter(i => ['api-security', 'pen-test', 'security'].includes(i.issueType))
+        .map(i => ({
+          surface: i.filePath || 'Unknown',
+          vulnerability: i.title,
+          severity: i.severity,
+          testingStrategy: i.suggestedFix || 'Manual review recommended'
+        }));
+
+      const report = {
+        repository: repository.repoName,
+        generatedAt: new Date(),
+        summary: {
+          totalVulnerabilities: issues.length,
+          criticalFindings: issues.filter(i => i.severity === 'CRITICAL').length,
+          attackSurfaces: attackSurfaces.length
+        },
+        attackSurfaces,
+        recommendations: [
+          'Conduct regular security audits',
+          'Implement automated security testing in CI/CD',
+          'Review and update authentication mechanisms',
+          'Ensure all endpoints have proper authorization checks',
+          'Keep dependencies up to date'
+        ]
+      };
+
+      return report;
+    } catch (error) {
+      console.error("❌ Pen test report generation failed:", error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new SecurityAdvisorService();
