@@ -153,51 +153,7 @@ class AnalysisService {
         console.log(`✅ Python analyzer found ${pythonIssues.length} issues`);
         allIssues.push(...pythonIssues);
       } else {
-        console.log("⚠️ Python analyzer returned 0 issues, falling back to standard batch analysis...");
-        // Step 3: Batch process files (Existing Logic)
-        for (let i = 0; i < filesToAnalyze.length; i += batchSize) {
-          if (currentIssuesCount >= ISSUE_LIMIT) {
-            console.log(`🛑 Reached analysis limit of ${ISSUE_LIMIT} issues. Skipping remaining files.`);
-            break;
-          }
-
-          const batch = filesToAnalyze.slice(i, i + batchSize);
-          console.log(
-            `🔄 Analyzing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(
-              filesToAnalyze.length / batchSize
-            )} (Current count: ${currentIssuesCount}/${ISSUE_LIMIT})`
-          );
-
-          // Get file contents
-          const filesWithContent = await Promise.all(
-            batch.map((file) =>
-              this.getFileContent(
-                repository.repoOwner,
-                repository.repoName,
-                file.path,
-                user.githubAccessToken
-              )
-            )
-          );
-
-          // Analyze with AI
-          const remainingQuota = ISSUE_LIMIT - currentIssuesCount;
-          const batchIssues = await this.analyzeFilesWithAI(
-            filesWithContent,
-            repository,
-            remainingQuota,
-            projectManifest
-          );
-
-          // Append only up to the limit
-          const issuesToAdd = batchIssues.slice(0, remainingQuota);
-          allIssues.push(...issuesToAdd);
-          currentIssuesCount += issuesToAdd.length;
-
-          if (currentIssuesCount < ISSUE_LIMIT) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          }
-        }
+        console.log("⚠️ Python analyzer returned 0 issues. Strict Cerebras mode: No fallback to Gemini.");
       }
 
       // Step 4: Save issues to database
@@ -519,40 +475,18 @@ RULES:
 
       if (process.env.CEREBRAS_API_KEY) {
         console.log("⚡ Calling Cerebras for high-speed analysis...");
-        try {
-          response = await cerebrasService.analyzeCode(
-            systemPrompt,
-            userPrompt,
-            {
-              jsonMode: true,
-              maxTokens: 4000,
-              temperature: 0.2,
-            }
-          );
-          serviceUsed = "Cerebras";
-        } catch (cerebrasError) {
-          console.warn("⚠️ Cerebras analysis failed, falling back to Gemini:", cerebrasError.message);
-          response = await geminiService.analyzeCode(
-            systemPrompt,
-            userPrompt,
-            {
-              jsonMode: true,
-              maxTokens: 8000,
-              temperature: 0.5,
-            }
-          );
-        }
-      } else {
-        console.log("🤖 Calling Gemini for code analysis...");
-        response = await geminiService.analyzeCode(
+        response = await cerebrasService.analyzeCode(
           systemPrompt,
           userPrompt,
           {
             jsonMode: true,
-            maxTokens: 8000,
-            temperature: 0.5,
+            maxTokens: 4000,
+            temperature: 0.2,
           }
         );
+        serviceUsed = "Cerebras";
+      } else {
+        throw new Error("CEREBRAS_API_KEY not found. Strict Cerebras mode enabled.");
       }
 
       console.log(
