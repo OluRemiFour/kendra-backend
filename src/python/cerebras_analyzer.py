@@ -107,11 +107,26 @@ def build_prompt(files: list[pathlib.Path], repo_url: str, branch: str, prefix: 
 async def analyze_repo(repo_url: str, branch: str, prefix: str | None = None):
     repo_path = None
     try:
+        # Log start of process
+        sys.stderr.write(f"DEBUG: Starting analysis for {repo_url} on branch {branch}\n")
+        
+        # 1. Clone
+        sys.stderr.write("DEBUG: Attempting shallow clone...\n")
         repo_path = shallow_clone(repo_url, branch)
+        sys.stderr.write(f"DEBUG: Clone successful. Path: {repo_path}\n")
+        
+        # 2. Collect
         files = collect_source_files(repo_path)
+        sys.stderr.write(f"DEBUG: Collected {len(files)} source files.\n")
+        
+        # 3. Build Prompt
         prompt = build_prompt(files, repo_url, branch, prefix)
+        sys.stderr.write(f"DEBUG: Prompt built. Size: {len(prompt)} chars.\n")
 
+        # 4. API Call
         url = f"{CEREBRAS_BASE_URL}/chat/completions"
+        sys.stderr.write(f"DEBUG: Calling Cerebras API at {url}...\n")
+        
         headers = {
             "Authorization": f"Bearer {CEREBRAS_API_KEY}",
             "Content-Type": "application/json",
@@ -130,12 +145,16 @@ async def analyze_repo(repo_url: str, branch: str, prefix: str | None = None):
             result = response.json()
             
             content = result["choices"][0]["message"]["content"]
+            sys.stderr.write("DEBUG: API call successful.\n")
             print(content) # Output result to stdout for parent process
 
     except Exception as exc:
-        print(json.dumps({"error": str(exc)}))
+        error_msg = f"ERROR in Python analyzer: {type(exc).__name__}: {str(exc)}"
+        sys.stderr.write(f"{error_msg}\n")
+        print(json.dumps({"error": error_msg}))
     finally:
         if repo_path and repo_path.exists():
+            sys.stderr.write("DEBUG: Cleaning up temp directory...\n")
             shutil.rmtree(repo_path, ignore_errors=True)
 
 if __name__ == "__main__":
