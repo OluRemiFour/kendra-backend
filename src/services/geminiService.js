@@ -65,10 +65,13 @@ class GeminiService {
     if (
       error.message.includes("quota") ||
       error.message.includes("429") ||
-      error.message.includes("RESOURCE_EXHAUSTED")
+      error.message.includes("RESOURCE_EXHAUSTED") ||
+      error.message.includes("expired") ||
+      error.message.includes("INVALID_ARGUMENT") ||
+      error.message.includes("API_KEY_INVALID")
     ) {
       keyInfo.available = false;
-      console.error(`❌ Key #${this.currentKeyIndex + 1} exhausted: ${error.message}`);
+      console.error(`❌ Key #${this.currentKeyIndex + 1} exhausted/expired: ${error.message}`);
     }
   }
 
@@ -99,21 +102,24 @@ class GeminiService {
         errorMessage.includes("quota") ||
         errorMessage.includes("429") ||
         errorMessage.includes("RESOURCE_EXHAUSTED") ||
-        errorMessage.includes("rate limit");
+        errorMessage.includes("rate limit") ||
+        errorMessage.includes("expired") ||
+        errorMessage.includes("INVALID_ARGUMENT") ||
+        errorMessage.includes("API_KEY_INVALID");
       const retryableErrors = ["503", "timeout", "network", "ECONNRESET", "ETIMEDOUT", "UNAVAILABLE"];
       const isRetryable = retryableErrors.some((code) =>
         errorMessage.toLowerCase().includes(code.toLowerCase())
       );
 
       if (isQuotaError) {
-        console.warn(`⚠️ Quota exceeded on key #${this.currentKeyIndex + 1}`);
+        console.warn(`⚠️ Quota exceeded or key expired on key #${this.currentKeyIndex + 1}`);
         this.markKeyExhausted(error);
         try {
           this.rotateClient();
           console.log("🔄 Retrying with new key...");
           return await this.withRetry(operation, 0);
         } catch (rotateError) {
-          throw new Error("All Gemini API keys have exceeded quota");
+          throw new Error("All Gemini API keys are exhausted or expired");
         }
       }
 

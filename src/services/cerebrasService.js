@@ -136,30 +136,88 @@ class CerebrasService {
     /** @type {import('@cerebras/cerebras_cloud_sdk').Cerebras | null} */
     this.client = null;
     this.initError = null;
+    this.apiKeys = [];
+    this.currentKeyIndex = 0;
+    this.keyStatus = [];
   }
 
   // -----------------------------------------------------------------------
   // Initialise the SDK client lazily.
   // -----------------------------------------------------------------------
   async initialize() {
-    if (this.client) return; // already ready
+    if (this.client && this.apiKeys.length > 0) return;
 
-    // NOTE: the official env var name is CEREBRAS_API_KEY (with an "A").
-    const apiKey = process.env.CEREBRAS_API_KEY;
-    if (!apiKey) {
-      console.warn('⚠️ CEREBRAS_API_KEY not found in environment variables');
+    // Load multiple keys
+    this.apiKeys = [];
+    if (process.env.CEREBRAS_API_KEY) this.apiKeys.push(process.env.CEREBRAS_API_KEY);
+    for (let i = 1; i <= 3; i++) {
+      const k = process.env[`CEREBRAS_API_KEY_${i}`];
+      if (k) this.apiKeys.push(k);
+    }
+
+    if (this.apiKeys.length === 0) {
+      console.warn('⚠️ No Cerebras API keys found in environment variables');
       this.initError = new Error('Missing CEREBRAS_API_KEY');
       return;
     }
 
-    try {
-      // The SDK constructor is synchronous, but we keep this method async
-      // to allow future async validation without breaking callers.
-      this.client = new Cerebras({ apiKey });
-      console.log('✅ Cerebras Service Initialized');
-    } catch (err) {
-      console.error('❌ Failed to initialise Cerebras client:', err);
-      this.initError = err;
+    this.keyStatus = this.apiKeys.map((_, index) => ({
+      index,
+      available: true,
+      lastError: null,
+      errorCount: 0,
+    }));
+
+    this.rotateClient();
+  }
+
+  rotateClient() {
+    if (this.apiKeys.length === 0) {
+      throw new Error("No Cerebras API keys available");
+    }
+
+    let attempts = 0;
+    while (attempts < this.apiKeys.length) {
+      // If we don't have a client yet, or if we're calling for a rotation
+      this.currentKeyIndex = (this.client === null) ? 0 : (this.currentKeyIndex + 1) % this.apiKeys.length;
+      
+      const keyInfo = this.keyStatus[this.currentKeyIndex];
+      if (keyInfo.available) {
+        const apiKey = this.apiKeys[this.currentKeyIndex];
+        try {
+          this.client = new Cerebras({ apiKey });
+          console.log(`🔄 Switched to Cerebras API key #${this.currentKeyIndex + 1}`);
+          return;
+        } catch (err) {
+          console.error(`❌ Failed to initialise Cerebras client #${this.currentKeyIndex + 1}:`, err);
+          keyInfo.available = false;
+        }
+      }
+      attempts++;
+      if (this.client === null) break; // If first init fails and no client yet
+    }
+
+    throw new Error("All Cerebras API keys are exhausted or unavailable");
+  }
+
+  markKeyExhausted(error) {
+    if (this.apiKeys.length === 0) return;
+    const keyInfo = this.keyStatus[this.currentKeyIndex];
+    keyInfo.errorCount++;
+    keyInfo.lastError = error.message;
+
+    const msg = error.message?.toLowerCase() || "";
+    if (
+      msg.includes("quota") ||
+      msg.includes("429") ||
+      msg.includes("rate limit") ||
+      msg.includes("expired") ||
+      msg.includes("invalid") ||
+      msg.includes("401") ||
+      msg.includes("400")
+    ) {
+      keyInfo.available = false;
+      console.error(`❌ Cerebras Key #${this.currentKeyIndex + 1} exhausted/expired: ${error.message}`);
     }
   }
 
@@ -172,17 +230,32 @@ class CerebrasService {
   // -----------------------------------------------------------------------
   async withRetry(operation, attempt = 0) {
     try {
+      if (!this.client) await this.initialize();
       return await operation();
     } catch (err) {
-      const status = err?.response?.status;
-      const isRateLimit = status === 429 || (err.message?.includes('429') ?? false);
+      const status = err?.response?.status || err?.status;
+      const msg = err.message?.toLowerCase() || "";
+      
+      const isRateLimit = status === 429 || msg.includes('429') || msg.includes('rate limit');
+      const isAuthError = status === 401 || status === 400 || msg.includes('expired') || msg.includes('invalid');
       const isTransient = status >= 500 && status < 600; // 5xx
-      const isNetwork = !err.response; // e.g., DNS, timeout
+      const isNetwork = !err.response && !err.status; // e.g., DNS, timeout
 
-      const shouldRetry = (isRateLimit || isTransient || isNetwork) && attempt < MAX_RETRIES;
+      if (isRateLimit || isAuthError) {
+        console.warn(`⚠️ Cerebras key #${this.currentKeyIndex + 1} failed: ${err.message}`);
+        this.markKeyExhausted(err);
+        try {
+          this.rotateClient();
+          console.log("🔄 Retrying with new Cerebras key...");
+          return await this.withRetry(operation, 0);
+        } catch (rotateError) {
+          throw new Error("All Cerebras API keys are exhausted or expired");
+        }
+      }
+
+      const shouldRetry = (isTransient || isNetwork) && attempt < MAX_RETRIES;
 
       if (!shouldRetry) {
-        // Propagate the original error – include the init error if we never got a client.
         if (!this.client && this.initError) throw this.initError;
         throw err;
       }
