@@ -134,7 +134,9 @@ def check_dns(hostname):
         sys.stderr.write(f"DEBUG: DNS Check - {hostname} resolved to {addr}\n")
         return True
     except socket.gaierror as e:
-        sys.stderr.write(f"DEBUG: DNS Check - FAILED to resolve {hostname}: {e}\n")
+        msg = f"DEBUG: DNS Check - FAILED to resolve {hostname}: {e}"
+        sys.stderr.write(f"{msg}\n")
+        sys.stderr.flush()
         return False
 
 async def analyze_repo(repo_url: str, branch: str, prefix: str | None = None):

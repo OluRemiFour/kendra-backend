@@ -657,9 +657,12 @@ RULES:
       });
 
       pyProcess.on("close", (code) => {
+        if (errorOutput) {
+          console.log("🐍 Python Debug Output:\n", errorOutput);
+        }
+
         if (code !== 0) {
           console.error(`❌ Python process exited with code ${code}`);
-          console.error(`Stderr: ${errorOutput}`);
           return resolve([]);
         }
 
