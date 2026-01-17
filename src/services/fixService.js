@@ -271,24 +271,28 @@ ${originalContent}`;
 
     try {
       let fixedContent;
-      let serviceUsed = "Gemini";
+      let serviceUsed = "Cerebras";
 
-      if (process.env.CEREBRAS_API_KEY) {
+      // 1. Try Cerebras First
+      try {
         console.log("⚡ Calling Cerebras for fix generation...");
+        const response = await cerebrasService.generateFix(
+          systemPrompt,
+          userPrompt,
+          {
+            model: "llama-3.3-70b",
+            temperature: 0.1,
+            maxTokens: 2000,
+          }
+        );
+        fixedContent = response.text.trim();
+        serviceUsed = "Cerebras";
+      } catch (cerebrasError) {
+        // 2. Fallback to Gemini
+        console.warn(`⚠️ Cerebras fix generation failed: ${cerebrasError.message}`);
+        console.log("🤖 Falling back to Gemini...");
+        
         try {
-          const response = await cerebrasService.generateFix(
-            systemPrompt,
-            userPrompt,
-            {
-              model: "llama3.1-70b",
-              temperature: 0.1,
-              maxTokens: 2000,
-            }
-          );
-          fixedContent = response.text.trim();
-          serviceUsed = "Cerebras";
-        } catch (cerebrasError) {
-          console.warn("⚠️ Cerebras fix generation failed, falling back to Gemini:", cerebrasError.message);
           const response = await geminiService.generateFix(
             systemPrompt,
             userPrompt,
@@ -299,21 +303,14 @@ ${originalContent}`;
             }
           );
           fixedContent = response.text.trim();
+          serviceUsed = "Gemini";
+        } catch (geminiError) {
+          console.error("❌ Both AI services failed for fix generation");
+          throw new Error(`AI fix generation failed. Cerebras: ${cerebrasError.message}. Gemini: ${geminiError.message}`);
         }
-      } else {
-        console.log("🤖 Calling Gemini for fix generation...");
-        const response = await geminiService.generateFix(
-          systemPrompt,
-          userPrompt,
-          {
-            model: "gemini-2.5-flash",
-            temperature: 0.1,
-            maxTokens: 4000,
-          }
-        );
-        fixedContent = response.text.trim();
       }
 
+      // Cleanup response (remove markdown fences)
       fixedContent = fixedContent
         .replace(/^```[a-z]*\n/i, "")
         .replace(/\n```$/i, "");
@@ -325,15 +322,11 @@ ${originalContent}`;
 
       return fixedContent;
     } catch (error) {
-      console.error("❌ Gemini fix generation failed:", error.message);
+      console.error("❌ AI fix generation failed:", error.message);
 
-      // Check if it's a quota error
-      if (
-        error.message.includes("quota") ||
-        error.message.includes("All Gemini API keys")
-      ) {
+      if (error.message.includes("exhausted") || error.message.includes("quota") || error.message.includes("expired")) {
         throw new Error(
-          "All Gemini API keys have exceeded quota. Please add more keys or wait."
+          "All AI service keys (Cerebras & Gemini) are currently exhausted or expired. Please add more keys."
         );
       }
 
