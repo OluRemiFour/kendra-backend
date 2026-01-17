@@ -206,7 +206,7 @@ class CerebrasService {
     if (!this.client) throw new Error('Cerebras client not initialised');
 
     const operation = async () => {
-      const model = options.model ?? 'llama3.1-70b';
+      const model = options.model ?? 'llama-3.3-70b';
       const temperature = options.temperature ?? 0.2;
       const maxTokens = options.maxTokens ?? 4000;
       const responseFormat = options.jsonMode
@@ -250,7 +250,7 @@ class CerebrasService {
   async generateFix(systemPrompt, userPrompt, options = {}) {
     return this.analyzeCode(systemPrompt, userPrompt, {
       ...options,
-      model: options.model ?? 'llama3.1-70b',
+      model: options.model ?? 'llama-3.3-70b',
       temperature: 0.1,
       maxTokens: 2000,
     });

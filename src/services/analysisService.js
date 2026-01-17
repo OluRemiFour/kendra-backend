@@ -109,10 +109,7 @@ class AnalysisService {
       const allIssues = [];
       const batchSize = this.MAX_FILES_PER_BATCH;
       const ISSUE_LIMIT = 25;
-      let currentIssuesCount = 0;
-
-      /*
-      PREVIOUS CODE:
+      
       for (let i = 0; i < filesToAnalyze.length; i += batchSize) {
         const batch = filesToAnalyze.slice(i, i + batchSize);
         console.log(
@@ -140,20 +137,16 @@ class AnalysisService {
           batchSize,
           projectManifest
         );
-      }
-      */
-      // --- EXPERIMENTAL PYTHON CEREBRAS TEST ---
-      console.log("🧪 Running Experimental Python Cerebras Analyzer...");
-      const pythonIssues = await this.runPythonAnalyzer(
-        `https://github.com/${repository.repoOwner}/${repository.repoName}.git`,
-        repository.defaultBranch || "main"
-      );
 
-      if (pythonIssues && pythonIssues.length > 0) {
-        console.log(`✅ Python analyzer found ${pythonIssues.length} issues`);
-        allIssues.push(...pythonIssues);
-      } else {
-        console.log("⚠️ Python analyzer returned 0 issues. Strict Cerebras mode: No fallback to Gemini.");
+        if (batchIssues && batchIssues.length > 0) {
+          allIssues.push(...batchIssues);
+        }
+
+        // Optional: limit total issues if needed
+        if (allIssues.length >= ISSUE_LIMIT) {
+          console.log(`🛑 Reached issue limit (${ISSUE_LIMIT}). Stopping analysis.`);
+          break;
+        }
       }
 
       // Step 4: Save issues to database
@@ -450,43 +443,68 @@ RULES:
     */
 
     // NEW OPTIMIZED PROMPTS:
-    const systemPrompt = `Expert Security Auditor. Your goal: Find REAL vulnerabilities and critical logic flaws. 
-    Focus: Auth bypass, SQLi, XSS, API security, and high-impact bugs.
-    Be critical. No codebase is perfect.
-    Reply in STRICT JSON.`;
+    const systemPrompt = `You are a senior software engineer and code auditor.
+Analyze the provided code and identify:
+- Bugs and logic errors
+- Security vulnerabilities
+- Performance issues
+- Bad practices
 
-    const userPrompt = `Analyze ${repository.repoOwner}/${repository.repoName} (${repository.language || "code"}).
-${projectManifest ? `Context - Dependencies/Manifest:\n${projectManifest}\n\n` : ""}
-Files for this batch:
-${filesContext.map((f, i) => `[FILE ${i+1}] ${f.path}${f.truncated ? " (truncated)" : ""}:\n${f.content}`).join("\n---\n")}
+Return a JSON object with an "issues" array. Each issue must include:
+- title: concise title
+- description: detailed explanation
+- issueType: "bug", "security", "performance", or "code-quality"
+- severity: "CRITICAL", "HIGH", "MEDIUM", or "LOW"
+- filePath: the file path
+- lineNumber: approximate line number
+- codeSnippet: relevant code
+- aiConfidence: number 0-1
+- aiExplanation: why this is an issue
+- suggestedFix: how to fix it
 
-TASK: Identify up to ${Math.min(issueLimit, 5)} high-impact issues.
-Schema: {"issues": [{"title":string,"description":string,"issueType":"security"|"bug"|"api-security"|"pen-test"|"dependency"|"code-quality","severity":"CRITICAL"|"HIGH"|"MEDIUM"|"LOW","filePath":string,"lineNumber":number,"codeSnippet":string,"aiConfidence":number,"aiExplanation":string,"suggestedFix":string}]}
+STRICT JSON ONLY. No other text.`;
 
-RULES:
-- prioritize CRITICAL/HIGH security flaws.
-- Be technical and specific.
-- Match exact filenames and approximate line numbers.
-- Valid JSON only.`;
+    const userPrompt = `Repository: ${repository.repoOwner}/${repository.repoName}
+${projectManifest ? `Context:\n${projectManifest}\n\n` : ""}
+Code to analyze:
+${filesContext.map((f, i) => `### File: ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n")}
+
+Find real issues in this code. Return JSON format.`;
 
     try {
       let response;
       let serviceUsed = "Gemini";
 
       if (process.env.CEREBRAS_API_KEY) {
-        console.log("⚡ Calling Cerebras for high-speed analysis...");
-        response = await cerebrasService.analyzeCode(
-          systemPrompt,
-          userPrompt,
-          {
+        try {
+          console.log("⚡ Calling Cerebras for high-speed analysis...");
+          response = await cerebrasService.analyzeCode(
+            systemPrompt,
+            userPrompt,
+            {
+              jsonMode: true,
+              maxTokens: 4000,
+              temperature: 0.2,
+            }
+          );
+          serviceUsed = "Cerebras";
+        } catch (cerebrasError) {
+          console.warn("⚠️ Cerebras failed, falling back to Gemini:", cerebrasError.message);
+          response = await geminiService.analyzeCode(systemPrompt, userPrompt, {
             jsonMode: true,
             maxTokens: 4000,
             temperature: 0.2,
-          }
-        );
-        serviceUsed = "Cerebras";
+          });
+          serviceUsed = "Gemini";
+        }
       } else {
-        throw new Error("CEREBRAS_API_KEY not found. Strict Cerebras mode enabled.");
+        console.log("fallback to Gemini (CEREBRAS_API_KEY not found)...");
+        response = await geminiService.analyzeCode(systemPrompt, userPrompt, {
+          jsonMode: true,
+          maxTokens: 4000,
+          temperature: 0.2,
+        });
+        serviceUsed = "Gemini";
       }
 
       console.log(
@@ -631,82 +649,6 @@ RULES:
     }
 
     return savedIssues;
-  }
-
-  /**
-   * Run the standalone Python Cerebras Analyzer
-   */
-  async runPythonAnalyzer(repoUrl, branch, prefix = "") {
-    return new Promise((resolve) => {
-      const pythonPath = "python"; // Assume python is in PATH
-      const scriptPath = path.resolve(__dirname, "../python/cerebras_analyzer.py");
-      
-      console.log(`🚀 Spawning Python Process: ${pythonPath} ${scriptPath} ${repoUrl} ${branch}`);
-
-      const pyProcess = spawn(pythonPath, [scriptPath, repoUrl, branch, prefix]);
-
-      let output = "";
-      let errorOutput = "";
-
-      pyProcess.stdout.on("data", (data) => {
-        output += data.toString();
-      });
-
-      pyProcess.stderr.on("data", (data) => {
-        errorOutput += data.toString();
-      });
-
-      pyProcess.on("close", (code) => {
-        if (errorOutput) {
-          console.log("🐍 Python Debug Output:\n", errorOutput);
-        }
-
-        if (code !== 0) {
-          console.error(`❌ Python process exited with code ${code}`);
-          return resolve([]);
-        }
-
-        try {
-          const result = JSON.parse(output.trim());
-          if (result.error) {
-            console.error(`❌ Python analyzer error: ${result.error}`);
-            return resolve([]);
-          }
-          
-          // Map Python output format to Kendra Issue format if needed
-          // Python: { "file": "path", "line": 1, "type": "bug", "msg": "...", "severity": "HIGH" }
-          // Kendra: { title, description, issueType, severity, filePath, lineNumber, ... }
-          const formattedIssues = (result.issues || []).map(issue => ({
-            title: issue.msg.split('\n')[0].substring(0, 100),
-            description: issue.msg,
-            issueType: this.mapIssueType(issue.type),
-            severity: issue.severity || "MEDIUM",
-            filePath: issue.file,
-            lineNumber: issue.line || 1,
-            codeSnippet: "", // Python analyzer doesn't return snippet yet
-            aiConfidence: 0.85,
-            aiExplanation: "Detected via Cerebras Llama-3.1 model",
-            suggestedFix: "Follow general best practices for this issue type."
-          }));
-
-          resolve(formattedIssues);
-        } catch (e) {
-          console.error("❌ Failed to parse Python output as JSON");
-          console.error("Raw Output:", output.substring(0, 500));
-          resolve([]);
-        }
-      });
-    });
-  }
-
-  mapIssueType(type) {
-    const map = {
-      "security": "security",
-      "bug": "bug",
-      "quality": "code-quality",
-      "performance": "performance"
-    };
-    return map[type] || "bug";
   }
 }
 
