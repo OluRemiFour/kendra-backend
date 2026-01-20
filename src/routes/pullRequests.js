@@ -162,8 +162,11 @@ router.post("/sync", authMiddleware.verifyToken, async (req, res) => {
         
         if (githubPR.merged) {
           newStatus = "merged";
+          // Also update reviewStatus
+          pr.reviewStatus = "merged"; 
         } else if (githubPR.state === "closed") {
           newStatus = "closed";
+          pr.reviewStatus = "closed";
         }
 
         
