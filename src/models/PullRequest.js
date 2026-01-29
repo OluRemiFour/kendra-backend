@@ -64,7 +64,6 @@ const PullRequestSchema = new mongoose.Schema({
   additions: Number,
   deletions: Number,
 
-  // Timestamps
   createdAt: {
     type: Date,
     default: Date.now,
