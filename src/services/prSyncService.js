@@ -34,7 +34,6 @@ class PRSyncService {
     console.log("🔄 Syncing all open PRs from GitHub...");
 
     try {
-      // Find all open PRs
       const openPRs = await PullRequest.find({ status: "open" });
 
       console.log(`Found ${openPRs.length} open PRs to sync`);
